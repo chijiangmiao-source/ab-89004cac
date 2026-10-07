@@ -1,0 +1,38 @@
+services:
+  app:
+    build: .
+    image: isolation-verdict:latest
+    environment:
+      HOST: 0.0.0.0
+      PORT: 8080
+      DB: /data/decisions.db
+    ports:
+      # 可配置宿主端口：APP_PORT=9090 docker compose up
+      - "${APP_PORT:-8080}:8080"
+    volumes:
+      - verdict-data:/data
+    healthcheck:
+      test:
+        - CMD
+        - python
+        - -c
+        - "import json,urllib.request,sys; r=urllib.request.urlopen('http://127.0.0.1:8080/health',timeout=3); sys.exit(0 if json.load(r).get('status')=='ok' else 1)"
+      interval: 5s
+      timeout: 3s
+      retries: 12
+      start_period: 3s
+
+  verify:
+    build: .
+    image: isolation-verdict:latest
+    command: ["python", "verify/run_verify.py"]
+    environment:
+      APP_URL: http://app:8080
+    depends_on:
+      app:
+        condition: service_healthy
+    # 一次性验收：完成一次后以退出码报告，不重启
+    restart: "no"
+
+volumes:
+  verdict-data:

@@ -1,0 +1,395 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>隔离控制协议迁移裁决</title>
+<style>
+:root { --bg:#0f1420; --panel:#171e2e; --line:#2a3550; --txt:#e6ebf5;
+        --muted:#8b97b0; --ok:#2fbf71; --bad:#e05260; --warn:#e0a93f;
+        --accent:#4c8dff; --chip:#212b42; }
+* { box-sizing:border-box; }
+body { margin:0; background:var(--bg); color:var(--txt);
+       font:14px/1.5 -apple-system,"Segoe UI","PingFang SC","Microsoft YaHei",sans-serif; }
+header { padding:14px 22px; border-bottom:1px solid var(--line);
+         display:flex; align-items:center; gap:14px; background:var(--panel); }
+header h1 { font-size:16px; margin:0; font-weight:600; }
+.badge { padding:2px 10px; border-radius:20px; font-size:12px; border:1px solid var(--line); }
+.badge.ok  { color:var(--ok);  border-color:var(--ok); }
+.badge.bad { color:var(--bad); border-color:var(--bad); }
+.badge.warn{ color:var(--warn);border-color:var(--warn); }
+.spacer { flex:1; }
+main { display:grid; grid-template-columns: 1fr 1fr; gap:16px; padding:16px 22px; }
+.full { grid-column: 1 / -1; }
+.card { background:var(--panel); border:1px solid var(--line); border-radius:10px; padding:14px 16px; }
+.card h2 { font-size:13px; margin:0 0 10px; color:var(--muted);
+           text-transform:uppercase; letter-spacing:.08em; }
+.row { display:flex; gap:8px; margin-bottom:8px; align-items:center; flex-wrap:wrap; }
+input,textarea,select,button { font:inherit; }
+input[type=text] { background:#101727; color:var(--txt); border:1px solid var(--line);
+                   border-radius:6px; padding:6px 9px; }
+input[type=text]:focus { outline:none; border-color:var(--accent); }
+.state-row,.sess-row { display:grid; gap:6px; align-items:center;
+        padding:8px; border:1px dashed var(--line); border-radius:8px; margin-bottom:8px; }
+.state-row { grid-template-columns: 130px 150px 1fr 28px; }
+.sess-row  { grid-template-columns: 110px 100px 110px 120px 1fr 28px; }
+.state-row input, .sess-row input { width:100%; }
+textarea.actions { background:#101727; color:var(--txt); border:1px solid var(--line);
+        border-radius:6px; padding:6px 9px; min-height:34px; resize:vertical; width:100%; }
+button { background:var(--accent); color:#fff; border:0; border-radius:7px;
+         padding:7px 14px; cursor:pointer; }
+button.ghost { background:transparent; border:1px solid var(--line); color:var(--txt); }
+button.danger { background:transparent; border:1px solid var(--bad); color:var(--bad); padding:2px 8px; }
+button:disabled { opacity:.45; cursor:not-allowed; }
+.muted { color:var(--muted); font-size:12px; }
+.x-del { color:var(--bad); cursor:pointer; text-align:center; }
+#verdict { white-space:normal; }
+.v-session { border:1px solid var(--line); border-radius:8px; padding:10px 12px; margin-bottom:8px; }
+.v-session.ok  { border-color:var(--ok); background:rgba(47,191,113,.07); }
+.v-session.bad { border-color:var(--bad); background:rgba(224,82,96,.07); }
+.v-title { font-weight:600; display:flex; gap:8px; align-items:center; }
+.path-step { margin:5px 0 5px 12px; font-size:13px; }
+.pill { display:inline-block; background:var(--chip); border:1px solid var(--line);
+        border-radius:5px; padding:0 7px; margin:1px 2px; font-family:ui-monospace,monospace; }
+pre.json { background:#0c1220; border:1px solid var(--line); border-radius:8px;
+           padding:10px; overflow:auto; max-height:320px; font-size:12px; }
+#error { color:var(--bad); margin-top:8px; min-height:20px; }
+@media (max-width:1000px){ main{grid-template-columns:1fr;} }
+</style>
+</head>
+<body>
+<header>
+  <h1>隔离控制协议 · 迁移裁决台</h1>
+  <span id="health" class="badge">健康检测中…</span>
+  <span class="spacer"></span>
+  <button class="ghost" id="btn-example-ok">填充示例：可迁移</button>
+  <button class="ghost" id="btn-example-miss">填充示例：动作缺失</button>
+</header>
+
+<main>
+  <section class="card">
+    <h2>旧规程（当前执行）</h2>
+    <div class="row">
+      <label>规程名 <input type="text" id="old-name" style="width:110px"></label>
+      <label>版本 <input type="text" id="old-version" style="width:100px"></label>
+      <label>起始状态 <input type="text" id="old-start" style="width:120px"></label>
+    </div>
+    <div id="old-states"></div>
+    <button class="ghost" id="old-add" type="button">＋ 旧规程状态</button>
+  </section>
+
+  <section class="card">
+    <h2>新规程（升级目标）</h2>
+    <div class="row">
+      <label>规程名 <input type="text" id="new-name" style="width:110px"></label>
+      <label>版本 <input type="text" id="new-version" style="width:100px"></label>
+      <label>起始状态 <input type="text" id="new-start" style="width:120px"></label>
+    </div>
+    <div id="new-states"></div>
+    <button class="ghost" id="new-add" type="button">＋ 新规程状态</button>
+  </section>
+
+  <section class="card full">
+    <h2>当前会话（至多 12 个）</h2>
+    <div class="sess-row" style="font-size:12px;color:var(--muted);border-style:solid">
+      <span>会话 ID</span><span>规程版本</span><span>当前状态(旧)</span><span>目标状态(新)</span><span>冻结时观察输出</span><span></span>
+    </div>
+    <div id="sessions"></div>
+    <button class="ghost" id="sess-add" type="button">＋ 会话</button>
+  </section>
+
+  <section class="card full">
+    <h2>裁决</h2>
+    <div class="row">
+      <label>稳定迁移标识
+        <input type="text" id="migration-id" style="width:280px"
+               placeholder="例如 cutover-2026-10-07-a">
+      </label>
+      <button id="btn-freeze">发起裁决（冻结）</button>
+      <button id="btn-publish" disabled>确认发布切换</button>
+      <button class="ghost" id="btn-refresh">按标识查询</button>
+      <span class="muted">允许动作填写格式：每行 <code>动作名:目标状态</code></span>
+    </div>
+    <div id="error"></div>
+  </section>
+
+  <section class="card full" id="result-card" hidden>
+    <h2>裁决结论</h2>
+    <div id="verdict"></div>
+  </section>
+</main>
+
+<script>
+"use strict";
+const $ = (id) => document.getElementById(id);
+
+/* ---------- 健康轮询 ---------- */
+async function pollHealth() {
+  try {
+    const r = await fetch("/health");
+    const j = await r.json();
+    if (r.ok && j.status === "ok") {
+      $("health").className = "badge ok";
+      $("health").textContent = `健康 · 冻结 ${j.frozen} / 已发布 ${j.published}`;
+    } else throw new Error();
+  } catch {
+    $("health").className = "badge bad";
+    $("health").textContent = "服务不可用";
+  }
+}
+setInterval(pollHealth, 5000);
+
+/* ---------- 结构化行编辑 ---------- */
+function stateRow(container, name = "", output = "", actions = "") {
+  const div = document.createElement("div");
+  div.className = "state-row";
+  div.innerHTML =
+    `<input placeholder="状态名" value="${esc(name)}">` +
+    `<input placeholder="可见输出" value="${esc(output)}">` +
+    `<textarea class="actions" placeholder="unlock:OPEN（每行一条）">${esc(actions)}</textarea>` +
+    `<span class="x-del" title="删除">✕</span>`;
+  div.querySelector(".x-del").onclick = () => div.remove();
+  container.appendChild(div);
+}
+function sessRow(sid = "", ver = "", st = "", tgt = "", out = "") {
+  const div = document.createElement("div");
+  div.className = "sess-row";
+  div.innerHTML =
+    `<input placeholder="S-001" value="${esc(sid)}">` +
+    `<input placeholder="版本" value="${esc(ver)}">` +
+    `<input placeholder="当前状态" value="${esc(st)}">` +
+    `<input placeholder="留空=同名" value="${esc(tgt)}">` +
+    `<input placeholder="观察输出（可留空）" value="${esc(out)}">` +
+    `<span class="x-del" title="删除">✕</span>`;
+  div.querySelector(".x-del").onclick = () => div.remove();
+  $("sessions").appendChild(div);
+}
+function esc(s) {
+  return String(s).replace(/[&<>"]/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+}
+$("old-add").onclick = () => stateRow($("old-states"));
+$("new-add").onclick = () => stateRow($("new-states"));
+$("sess-add").onclick = () => {
+  if (document.querySelectorAll("#sessions .sess-row").length >= 12) return;
+  sessRow();
+};
+
+function collectSpec(prefix) {
+  const states = {};
+  document.querySelectorAll(`#${prefix}-states .state-row`).forEach((row) => {
+    const inputs = row.querySelectorAll("input");
+    const name = inputs[0].value.trim();
+    if (!name) return;
+    const output = inputs[1].value;
+    const actions = {};
+    row.querySelector("textarea.actions").value
+      .split(/[\n,;]+/).map((s) => s.trim()).filter(Boolean)
+      .forEach((pair) => {
+        const i = pair.indexOf(":");
+        if (i > 0) actions[pair.slice(0, i).trim()] = pair.slice(i + 1).trim();
+      });
+    states[name] = { output, actions };
+  });
+  return {
+    name: $(`${prefix}-name`).value.trim() || prefix,
+    version: $(`${prefix}-version`).value.trim(),
+    start: $(`${prefix}-start`).value.trim(),
+    states,
+  };
+}
+function collectSessions() {
+  const out = [];
+  document.querySelectorAll("#sessions .sess-row").forEach((row) => {
+    const v = row.querySelectorAll("input");
+    if (!v[0].value.trim()) return;
+    out.push({
+      session_id: v[0].value.trim(),
+      spec_version: v[1].value.trim(),
+      state: v[2].value.trim(),
+      target_state: v[3].value.trim(),
+      observed_output: v[4].value,
+    });
+  });
+  return out;
+}
+
+/* ---------- 示例 ---------- */
+const EXAMPLES = {
+  ok: {
+    old: { name: "isol", version: "v1", start: "LOCKED", states: [
+      ["LOCKED", "红灯", { unlock: "OPEN" }],
+      ["OPEN", "绿灯", { lock: "LOCKED", trip: "TRIPPED" }],
+      ["TRIPPED", "黄灯", { reset: "LOCKED" }],
+    ]},
+    neu: { name: "isol", version: "v2", start: "LOCKED", states: [
+      ["LOCKED", "红灯", { unlock: "OPEN" }],
+      ["OPEN", "绿灯", { lock: "LOCKED", trip: "TRIPPED" }],
+      ["TRIPPED", "黄灯", { reset: "LOCKED" }],
+    ]},
+    sessions: [
+      ["S-001", "v1", "LOCKED", "", "红灯"],
+      ["S-002", "v1", "OPEN", "", "绿灯"],
+    ],
+    mid: "cutover-2026-10-07-ok",
+  },
+  miss: {
+    old: { name: "isol", version: "v1", start: "LOCKED", states: [
+      ["LOCKED", "红灯", { unlock: "OPEN" }],
+      ["OPEN", "绿灯", { lock: "LOCKED", trip: "TRIPPED" }],
+      ["TRIPPED", "黄灯", { reset: "LOCKED" }],
+    ]},
+    neu: { name: "isol", version: "v2", start: "LOCKED", states: [
+      ["LOCKED", "红灯", { unlock: "OPEN" }],
+      // 新规程 OPEN 缺少 trip，且新增旧侧没有的 force_open
+      ["OPEN", "绿灯", { lock: "LOCKED", force_open: "OPEN" }],
+      ["TRIPPED", "黄灯", { reset: "LOCKED" }],
+    ]},
+    sessions: [
+      ["S-007", "v1", "OPEN", "", "绿灯"],
+    ],
+    mid: "cutover-2026-10-07-miss",
+  },
+};
+function loadExample(key) {
+  const ex = EXAMPLES[key];
+  ["old", "new"].forEach((prefix) => {
+    const src = prefix === "old" ? ex.old : ex.neu;
+    $(`${prefix}-name`).value = src.name;
+    $(`${prefix}-version`).value = src.version;
+    $(`${prefix}-start`).value = src.start;
+    $(`${prefix}-states`).innerHTML = "";
+    src.states.forEach(([n, o, a]) =>
+      stateRow($(`${prefix}-states`), n, o,
+        Object.entries(a).map(([k, v]) => `${k}:${v}`).join("\n")));
+  });
+  $("sessions").innerHTML = "";
+  ex.sessions.forEach(([id, ver, st, out, tgt]) => sessRow(id, ver, st, tgt || "", out));
+  $("migration-id").value = ex.mid;
+  $("error").textContent = "";
+}
+$("btn-example-ok").onclick = () => loadExample("ok");
+$("btn-example-miss").onclick = () => loadExample("miss");
+
+/* ---------- 裁决结果渲染 ---------- */
+function renderVerdict(rec) {
+  $("result-card").hidden = false;
+  const v = rec.verdict;
+  const canPublish = v.publishable && rec.stage === "FROZEN";
+  $("btn-publish").disabled = !canPublish;
+  $("btn-publish").dataset.mid = rec.migration_id;
+  $("btn-publish").dataset.hash = rec.snapshot_hash;
+
+  const stageBadge = rec.stage === "PUBLISHED"
+    ? '<span class="badge ok">已发布（唯一结论）</span>'
+    : '<span class="badge warn">已冻结 · 未发布</span>';
+  const pubBadge = v.publishable
+    ? '<span class="badge ok">候选可发布</span>'
+    : '<span class="badge bad">存在阻断，禁止发布</span>';
+
+  let html = `<div class="row"><strong>${esc(rec.migration_id)}</strong>
+      ${stageBadge} ${pubBadge}
+      <span class="muted">快照指纹 <span class="pill">${rec.snapshot_hash.slice(0, 16)}…</span></span></div>`;
+
+  html += `<h2>逐会话裁决（${v.sessions.length}）</h2>`;
+  for (const s of v.sessions) {
+    if (s.ok) {
+      html += `<div class="v-session ok"><div class="v-title">
+          <span class="badge ok">可迁入</span> ${esc(s.session_id)}
+          → 目标状态 <span class="pill">${esc(s.target_state)}</span></div></div>`;
+    } else {
+      html += `<div class="v-session bad"><div class="v-title">
+          <span class="badge bad">阻断</span> ${esc(s.session_id)}</div>`;
+      s.blocking_path.forEach((step) => {
+        if (step.action) {
+          html += `<div class="path-step">▸ 第 ${step.step} 步：
+            <span class="pill">${esc(step.old_state)}</span>
+            ──动作 <span class="pill">${esc(step.action)}</span>──▶
+            <span class="pill">${esc(step.new_state)}</span>
+            后继 (<span class="pill">${esc(step.to_old)}</span>,
+            <span class="pill">${esc(step.to_new)}</span>) 不匹配，继续追踪</div>`;
+        } else {
+          html += `<div class="path-step">✖ 首个阻断点（第 ${step.step} 步）：
+            <span class="pill">${esc(step.old_state)}</span>
+            vs <span class="pill">${esc(step.new_state)}</span>
+            — <strong>${esc(step.reason)}</strong>：${esc(step.detail)}</div>`;
+        }
+      });
+      html += `</div>`;
+    }
+  }
+
+  html += `<h2>映射证据（最大双向匹配，共 ${v.matched_pairs.length} 对；可达对 ${v.checked_pairs}）</h2>`;
+  html += '<div>' + v.matched_pairs.map((p) =>
+    `<span class="pill">${esc(p.old_state)} ≈ ${esc(p.new_state)}</span>`).join("") + "</div>";
+
+  html += `<h2>规程摘要与会话版本（绑定于同一持久化裁决）</h2>
+    <div class="row">
+      <div>旧：<span class="pill">${esc(rec.old_summary.name)}@${esc(rec.old_summary.version)}</span>
+        ${rec.old_summary.state_count} 状态 / ${rec.old_summary.action_edge_count} 动作边
+        <span class="pill">${rec.old_summary.sha256.slice(0, 16)}…</span></div>
+      <div>新：<span class="pill">${esc(rec.new_summary.name)}@${esc(rec.new_summary.version)}</span>
+        ${rec.new_summary.state_count} 状态 / ${rec.new_summary.action_edge_count} 动作边
+        <span class="pill">${rec.new_summary.sha256.slice(0, 16)}…</span></div>
+    </div>
+    <div>${rec.sessions.map((s) =>
+      `<span class="pill">${esc(s.session_id)}@${esc(s.spec_version)}:${esc(s.state)}</span>`).join("")}
+    </div>
+    <details><summary class="muted">原始裁决 JSON</summary><pre class="json">${
+      esc(JSON.stringify(rec, null, 2))}</pre></details>`;
+  $("verdict").innerHTML = html;
+}
+
+async function api(url, method, body) {
+  const opts = { method, headers: { "Content-Type": "application/json" } };
+  if (body) opts.body = JSON.stringify(body);
+  const r = await fetch(url, opts);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok) throw Object.assign(new Error(j.message || r.statusText), { j });
+  return j;
+}
+
+$("btn-freeze").onclick = async () => {
+  $("error").textContent = "";
+  try {
+    const payload = {
+      migration_id: $("migration-id").value.trim(),
+      old_spec: collectSpec("old"),
+      new_spec: collectSpec("new"),
+      sessions: collectSessions(),
+    };
+    renderVerdict(await api("/api/decisions/freeze", "POST", payload));
+  } catch (e) {
+    $("error").textContent = "裁决失败：" + (e.message || e);
+    if (e.j && e.j.existing_stage)
+      $("error").textContent += `（该标识现有阶段：${e.j.existing_stage}）`;
+  }
+};
+$("btn-publish").onclick = async () => {
+  $("error").textContent = "";
+  const mid = $("btn-publish").dataset.mid;
+  const hash = $("btn-publish").dataset.hash;
+  try {
+    const rec = await api(`/api/decisions/${encodeURIComponent(mid)}/publish`,
+      "POST", { snapshot_hash: hash });
+    renderVerdict(rec);
+  } catch (e) {
+    $("error").textContent = "发布失败：" + (e.message || e);
+  }
+};
+$("btn-refresh").onclick = async () => {
+  const mid = $("migration-id").value.trim();
+  if (!mid) return;
+  try {
+    renderVerdict(await api(`/api/decisions/${encodeURIComponent(mid)}`, "GET"));
+  } catch (e) {
+    $("error").textContent = "查询失败：" + (e.message || e);
+  }
+};
+
+/* ---------- 初始状态 ---------- */
+loadExample("ok");
+pollHealth();
+</script>
+</body>
+</html>
