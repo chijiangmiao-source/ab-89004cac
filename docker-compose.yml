@@ -1,0 +1,40 @@
+services:
+  app:
+    build: .
+    image: migration-adjudicator:latest
+    environment:
+      HOST: 0.0.0.0
+      PORT: "8080"
+      DB_PATH: /data/verdicts.db
+      LOG_LEVEL: INFO
+    ports:
+      # 宿主端口可配置：HOST_PORT=9090 docker compose up
+      - "${HOST_PORT:-8080}:8080"
+    volumes:
+      - verdict-data:/data
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request,sys; sys.exit(0 if urllib.request.urlopen('http://127.0.0.1:8080/healthz', timeout=2).status==200 else 1)"]
+      interval: 5s
+      timeout: 3s
+      retries: 10
+      start_period: 3s
+    restart: unless-stopped
+
+  # 验收服务：规则测试 + 构建检查 + API/HTTP 冒烟（含对在线 app 的探测）。
+  # 运行：docker compose --profile verify run --rm verify
+  # 完成一次后以退出码报告（全部通过为 0）。
+  verify:
+    build: .
+    image: migration-adjudicator:latest
+    profiles: ["verify"]
+    depends_on:
+      app:
+        condition: service_healthy
+    environment:
+      APP_BASE_URL: http://app:8080
+      PYTHONPATH: /workspace
+    command: ["sh", "/workspace/verify/run_checks.sh"]
+    restart: "no"
+
+volumes:
+  verdict-data:

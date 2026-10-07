@@ -1,0 +1,358 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>隔离控制协议迁移裁决</title>
+<style>
+  :root {
+    --bg: #0f1420; --panel: #181f2e; --line: #2a3550;
+    --text: #e6ebf5; --muted: #93a0b8; --accent: #5b8cff;
+    --ok: #2fbf71; --bad: #e5484d; --warn: #e5a23b;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0; background: var(--bg); color: var(--text);
+    font: 14px/1.5 -apple-system, "Segoe UI", "PingFang SC", "Microsoft YaHei", sans-serif;
+  }
+  header {
+    padding: 14px 22px; border-bottom: 1px solid var(--line);
+    display: flex; align-items: center; gap: 16px; flex-wrap: wrap;
+  }
+  header h1 { font-size: 17px; margin: 0; font-weight: 600; }
+  #health {
+    display: inline-flex; align-items: center; gap: 8px;
+    padding: 3px 12px; border-radius: 999px; border: 1px solid var(--line);
+    font-size: 12px; color: var(--muted);
+  }
+  #health .dot { width: 9px; height: 9px; border-radius: 50%; background: #666; }
+  #health.ok .dot { background: var(--ok); box-shadow: 0 0 8px var(--ok); }
+  #health.bad .dot { background: var(--bad); box-shadow: 0 0 8px var(--bad); }
+  main { padding: 20px 22px; max-width: 1180px; margin: 0 auto; }
+  .grid { display: grid; grid-template-columns: 1fr 1fr; gap: 16px; }
+  @media (max-width: 900px) { .grid { grid-template-columns: 1fr; } }
+  .panel {
+    background: var(--panel); border: 1px solid var(--line);
+    border-radius: 10px; padding: 14px 16px; margin-bottom: 16px;
+  }
+  .panel h2 { font-size: 13px; margin: 0 0 10px; color: var(--muted);
+    text-transform: uppercase; letter-spacing: .08em; }
+  textarea {
+    width: 100%; min-height: 230px; resize: vertical;
+    background: #0c111c; color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 10px; font: 12px/1.45 ui-monospace, Menlo, Consolas, monospace;
+  }
+  textarea:focus, input:focus { outline: 2px solid var(--accent); outline-offset: -1px; }
+  input[type=text] {
+    background: #0c111c; color: var(--text); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 10px; font-size: 13px;
+  }
+  table { width: 100%; border-collapse: collapse; }
+  th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 500; font-size: 12px; }
+  td input { width: 100%; }
+  button {
+    background: var(--accent); color: #fff; border: 0; border-radius: 8px;
+    padding: 9px 18px; font-size: 13px; cursor: pointer; font-weight: 600;
+  }
+  button.secondary { background: #2c3852; }
+  button.danger { background: #5a2b33; }
+  button:disabled { opacity: .45; cursor: not-allowed; }
+  .row { display: flex; gap: 10px; align-items: center; flex-wrap: wrap; }
+  .muted { color: var(--muted); font-size: 12px; }
+  .mono { font-family: ui-monospace, Menlo, Consolas, monospace; }
+  .verdict { border-radius: 10px; padding: 12px 14px; margin-bottom: 12px;
+    border: 1px solid var(--line); }
+  .verdict.safe { border-color: rgba(47,191,113,.5); background: rgba(47,191,113,.08); }
+  .verdict.blocked { border-color: rgba(229,72,77,.5); background: rgba(229,72,77,.08); }
+  .verdict h3 { margin: 0 0 6px; font-size: 14px; display: flex; gap: 10px; align-items: center; }
+  .badge { font-size: 11px; padding: 2px 9px; border-radius: 999px; font-weight: 600; }
+  .badge.safe { background: rgba(47,191,113,.25); color: var(--ok); }
+  .badge.blocked { background: rgba(229,72,77,.25); color: var(--bad); }
+  .badge.phase { background: rgba(91,140,255,.2); color: #9bb8ff; }
+  ol.path { margin: 8px 0 0; padding-left: 22px; }
+  ol.path li { margin: 3px 0; }
+  .step-action { color: var(--warn); font-weight: 600; }
+  pre.evidence {
+    background: #0c111c; border: 1px solid var(--line); border-radius: 8px;
+    padding: 10px; overflow: auto; font-size: 12px; margin: 8px 0 0;
+    max-height: 260px;
+  }
+  #error {
+    display: none; border: 1px solid rgba(229,72,77,.6); background: rgba(229,72,77,.1);
+    color: #ffb4b6; padding: 10px 14px; border-radius: 8px; margin-bottom: 14px;
+    white-space: pre-wrap;
+  }
+  .digests { font-size: 11px; color: var(--muted); word-break: break-all; }
+  .del { background: transparent; color: var(--bad); padding: 2px 8px; }
+</style>
+</head>
+<body>
+<header>
+  <h1>隔离控制协议 · 迁移裁决台</h1>
+  <span id="health"><span class="dot"></span><span id="health-text">检测中…</span></span>
+  <span class="muted">最大双向匹配 · 冻结快照 · 原子发布</span>
+</header>
+
+<main>
+  <div id="error"></div>
+
+  <div class="panel">
+    <div class="grid">
+      <div>
+        <h2>旧规程（当前执行）</h2>
+        <textarea id="oldSpec"></textarea>
+      </div>
+      <div>
+        <h2>新规程（拟迁入）</h2>
+        <textarea id="newSpec"></textarea>
+      </div>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>当前会话快照（至多 12 个）</h2>
+    <table>
+      <thead><tr><th style="width:38%">会话标识</th><th style="width:38%">当前状态</th><th></th></tr></thead>
+      <tbody id="sessionRows"></tbody>
+    </table>
+    <div class="row" style="margin-top:10px">
+      <button class="secondary" id="addSession" type="button">＋ 添加会话</button>
+      <span class="muted" id="sessionCount"></span>
+    </div>
+  </div>
+
+  <div class="panel">
+    <h2>稳定迁移标识与裁决</h2>
+    <div class="row">
+      <label class="muted">迁移标识</label>
+      <input type="text" id="migrationId" style="width:300px"
+             placeholder="如 mig-2026-10-07-01（重传须用同一标识与同一份快照）">
+      <button id="freezeBtn" type="button">① 冻结并裁决</button>
+      <button class="secondary" id="publishBtn" type="button" disabled>② 发布迁移</button>
+      <button class="secondary" id="queryBtn" type="button">查询标识</button>
+    </div>
+    <p class="muted" style="margin:8px 0 0">
+      冻结会把旧/新规程摘要、会话版本、逐会话映射证据与阶段绑定进同一条持久裁决；
+      只有<b>全部</b>冻结会话可映射时才允许发布。同标识重传但快照不同将被拒绝（409）。
+    </p>
+  </div>
+
+  <div class="panel" id="resultPanel" style="display:none">
+    <h2>裁决结论</h2>
+    <div id="meta"></div>
+    <div id="sessions" style="margin-top:12px"></div>
+  </div>
+</main>
+
+<script>
+"use strict";
+
+const EXAMPLE_OLD = {
+  name: "isolation-v3",
+  states: {
+    idle:  { output: "READY", transitions: { arm: "armed" } },
+    armed: { output: "ARMED", transitions: { fire: "done", disarm: "idle" } },
+    done:  { output: "DONE",  transitions: { reset: "idle" } }
+  }
+};
+const EXAMPLE_NEW = {
+  name: "isolation-v4",
+  states: {
+    idle:  { output: "READY", transitions: { arm: "armed" } },
+    armed: { output: "ARMED", transitions: { fire: "done", disarm: "idle" } },
+    done:  { output: "DONE",  transitions: { reset: "idle" } },
+    standby: { output: "STANDBY", transitions: { wake: "idle" } }
+  }
+};
+
+const $ = (id) => document.getElementById(id);
+const oldSpec = $("oldSpec"), newSpec = $("newSpec");
+oldSpec.value = JSON.stringify(EXAMPLE_OLD, null, 2);
+newSpec.value = JSON.stringify(EXAMPLE_NEW, null, 2);
+
+function showError(msg) {
+  const box = $("error");
+  if (!msg) { box.style.display = "none"; box.textContent = ""; return; }
+  box.style.display = "block"; box.textContent = msg;
+}
+
+function renderSessionRows(sessions) {
+  const tbody = $("sessionRows");
+  tbody.innerHTML = "";
+  sessions.forEach((s) => {
+    const tr = document.createElement("tr");
+    tr.innerHTML =
+      '<td><input type="text" class="sid"></td>' +
+      '<td><input type="text" class="state"></td>' +
+      '<td><button class="del" type="button">移除</button></td>';
+    tr.querySelector(".sid").value = s.session_id;
+    tr.querySelector(".state").value = s.current_state;
+    tr.querySelector(".del").onclick = () => {
+      if (sessions.length <= 1) return;
+      const i = sessions.findIndex((x) => x === s);
+      sessions.splice(i, 1); renderSessionRows(sessions);
+    };
+    tbody.appendChild(tr);
+  });
+  $("sessionCount").textContent = sessions.length + " / 12";
+  $("addSession").disabled = sessions.length >= 12;
+}
+let sessionSeed = 1;
+const sessions = [
+  { session_id: "sess-A", current_state: "idle" },
+  { session_id: "sess-B", current_state: "armed" }
+];
+renderSessionRows(sessions);
+$("addSession").onclick = () => {
+  if (sessions.length >= 12) return;
+  sessions.push({ session_id: "sess-" + (sessionSeed++), current_state: "" });
+  renderSessionRows(sessions);
+};
+function collectSessions() {
+  return [...document.querySelectorAll("#sessionRows tr")].map((tr) => ({
+    session_id: tr.querySelector(".sid").value.trim(),
+    current_state: tr.querySelector(".state").value.trim()
+  }));
+}
+
+async function api(method, path, body) {
+  const res = await fetch(path, {
+    method,
+    headers: { "Content-Type": "application/json" },
+    body: body ? JSON.stringify(body) : undefined
+  });
+  let data = null;
+  try { data = await res.json(); } catch (_) { /* no body */ }
+  if (!res.ok) throw new Error("HTTP " + res.status + " — " + (data && data.error || res.statusText));
+  return data;
+}
+
+function renderVerdict(v) {
+  $("resultPanel").style.display = "block";
+  const phaseBadge =
+    '<span class="badge phase">' + v.phase + (v.phase === "PUBLISHED" ? " · 已发布" : " · 仅冻结") + "</span>";
+  const pubBadge = v.publishable
+    ? '<span class="badge safe">全部会话可映射 · 可发布</span>'
+    : '<span class="badge blocked">存在阻断会话 · 禁止发布</span>';
+  $("meta").innerHTML =
+    '<div class="row" style="font-size:14px"><b class="mono"></b>' +
+    escapeHtml(v.migration_id) + "</div>" +
+    '<div class="row" style="margin:6px 0">' + phaseBadge + pubBadge +
+    (v.retransmitted ? '<span class="badge phase">同标识重传 · 返回原裁决</span>' : "") + "</div>" +
+    '<div class="digests">旧规程摘要: ' + v.old_digest.slice(0, 20) +
+    '…<br>新规程摘要: ' + v.new_digest.slice(0, 20) +
+    '…<br>会话版本: ' + v.session_version.slice(0, 20) + "…" +
+    (v.published_at ? "<br>发布时间: " + escapeHtml(v.published_at) : "") + "</div>";
+
+  $("publishBtn").disabled = !(v.publishable && v.phase === "FROZEN");
+
+  const box = $("sessions");
+  box.innerHTML = "";
+  v.results.forEach((r) => {
+    const div = document.createElement("div");
+    div.className = "verdict " + (r.safe ? "safe" : "blocked");
+    if (r.safe) {
+      const pairs = r.mapping.map((m) => {
+        const succ = Object.entries(m.successors)
+          .map(([a, p]) => "&nbsp;&nbsp;动作 <span class='step-action'>" + escapeHtml(a) +
+            "</span> → (" + escapeHtml(p[0]) + " ⇄ " + escapeHtml(p[1]) + ")")
+          .join("<br>");
+        return "<li>(" + escapeHtml(m.old_state) + " ⇄ " + escapeHtml(m.new_state) +
+          ") 输出=" + escapeHtml(m.output) +
+          " 允许动作={" + m.actions.map(escapeHtml).join(", ") + "}" +
+          "<br>" + succ + "</li>";
+      }).join("");
+      div.innerHTML =
+        "<h3>会话 " + escapeHtml(r.session_id) +
+        ' <span class="badge safe">可安全迁入</span></h3>' +
+        "<div>当前状态 <b class='mono'>" + escapeHtml(r.current_state) +
+        "</b> → 目标状态 <b class='mono' style='color:var(--ok)'>" +
+        escapeHtml(r.target_state) + "</b></div>" +
+        '<details><summary class="muted" style="cursor:pointer;margin-top:6px">映射证据（双向匹配闭包，' +
+        r.mapping.length + ' 对状态）</summary>' +
+        '<pre class="evidence"><ol class="path">' + pairs + "</ol></pre></details>";
+    } else {
+      const steps = r.blocking_path.map((s, i) => {
+        const action = s.action
+          ? '经动作 <span class="step-action">' + escapeHtml(s.action) + "</span> → "
+          : (i === 0 ? "" : "→ ");
+        return "<li>" + action + "状态对 (" + escapeHtml(s.old_state) + " ⇄ " +
+          escapeHtml(s.new_state) + ")<div class='muted'>" + escapeHtml(s.detail) + "</div></li>";
+      }).join("");
+      div.innerHTML =
+        "<h3>会话 " + escapeHtml(r.session_id) +
+        ' <span class="badge blocked">阻断</span></h3>' +
+        "<div>当前状态 <b class='mono'>" + escapeHtml(r.current_state) +
+        "</b> · 无目标状态</div>" +
+        "<div class='muted' style='margin-top:4px'>首个阻断原因：" +
+        escapeHtml(r.blocking_reason || "(无)") + "</div>" +
+        (steps ? '<ol class="path">' + steps + "</ol>" : "");
+    }
+    box.appendChild(div);
+  });
+}
+
+function escapeHtml(s) {
+  return String(s).replace(/[&<>"']/g, (c) =>
+    ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c]));
+}
+
+async function doFreeze() {
+  showError("");
+  let oldP, newP;
+  try { oldP = JSON.parse(oldSpec.value); }
+  catch (e) { return showError("旧规程 JSON 解析失败: " + e.message); }
+  try { newP = JSON.parse(newSpec.value); }
+  catch (e) { return showError("新规程 JSON 解析失败: " + e.message); }
+  const sess = collectSessions();
+  if (sess.length === 0) return showError("至少录入一个会话");
+  for (const s of sess) {
+    if (!s.session_id || !s.current_state)
+      return showError("每个会话都必须填写会话标识和当前状态");
+  }
+  const ids = sess.map((s) => s.session_id);
+  if (new Set(ids).size !== ids.length) return showError("会话标识重复");
+  const migrationId = $("migrationId").value.trim();
+  if (!migrationId) return showError("请填写稳定迁移标识");
+  try {
+    const v = await api("POST", "/api/verdicts/freeze", {
+      migration_id: migrationId, old: oldP, new: newP, sessions: sess
+    });
+    renderVerdict(v);
+  } catch (e) { showError(e.message); }
+}
+
+$("freezeBtn").onclick = doFreeze;
+$("publishBtn").onclick = async () => {
+  showError("");
+  try {
+    const v = await api("POST", "/api/verdicts/" +
+      encodeURIComponent($("migrationId").value.trim()) + "/publish");
+    renderVerdict(v);
+  } catch (e) { showError(e.message); }
+};
+$("queryBtn").onclick = async () => {
+  showError("");
+  const id = $("migrationId").value.trim();
+  if (!id) return showError("请填写迁移标识");
+  try { renderVerdict(await api("GET", "/api/verdicts/" + encodeURIComponent(id))); }
+  catch (e) { showError(e.message); }
+};
+
+async function pollHealth() {
+  const el = $("health"), txt = $("health-text");
+  try {
+    const h = await api("GET", "/healthz");
+    el.className = "ok";
+    txt.textContent = "健康 · 已绑定裁决 " + h.verdicts + " 条";
+  } catch (_) {
+    el.className = "bad";
+    txt.textContent = "服务不可达";
+  }
+}
+pollHealth();
+setInterval(pollHealth, 5000);
+</script>
+</body>
+</html>
